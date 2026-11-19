@@ -5,6 +5,63 @@ origen, implicaciones, código tocado y verificación.
 
 ## Sin publicar
 
+### Etapa 3: caché y descarga (2026-11-19)
+
+1. **Resumen.** `transacciones()` y `resumen_oficial()` pueden descargar el Excel de
+   una URL, con reintentos, y lo guardan en una caché local junto con las transacciones
+   limpias en parquet. Así, las llamadas siguientes no vuelven a descargar ni a leer el
+   Excel.
+
+2. **Antes.** Solo se podía pasar un archivo ya descargado, y cada llamada leía el Excel
+   completo (unos 11 s con pandas 3.1.1).
+
+3. **Cambio y origen.** Sigue las secciones 5 y 6 de
+   `INSTRUCCIONES_rdfin_v0.1_desde_cero.md` (descarga, caché y sus pruebas), más cinco
+   decisiones aprobadas en esta etapa:
+   - una URL distinta de la guardada invalida la caché;
+   - si la descarga falla, se lanza `ErrorDeDescarga` y no se usa la copia vieja;
+   - el `.xlsx`, el parquet y el json se escriben aparte y se renombran;
+   - no hay URL por defecto hasta la etapa 5;
+   - las pruebas quedan en `tests/test_creditopublico.py`.
+   La fuente se busca en este orden: `archivo` (sin caché), `url` y la variable
+   `RDFIN_URL_CP`. `max_edad_horas` vale 12 por defecto, provisional hasta conocer la
+   hora de actualización de la fuente.
+
+4. **Implicaciones.** Se descarga de nuevo si no hay copia, con `refrescar=True`, si la
+   copia tiene más de `max_edad_horas`, si viene de otra URL o si la guardó otra versión
+   de rdfin. Al descargar se borra el parquet. `transacciones()` lee siempre el parquet,
+   para que la primera llamada y las siguientes devuelvan exactamente lo mismo.
+   `limpiar_cache()` borra solo los archivos `creditopublico.*`, por si `RDFIN_CACHE`
+   apunta a una carpeta con otros archivos. La descarga se identifica con
+   `User-Agent: rdfin/<versión> (+https://github.com/estescobar/rdfin)`.
+
+5. **Código tocado.**
+   - `src/rdfin/_http.py` (nuevo): `descargar()`, con 3 intentos y esperas de 1 s y 2 s
+     ante errores de conexión, 429 y 5xx; otro 4xx falla de inmediato.
+   - `src/rdfin/_cache.py` (nuevo): directorio, vigencia, escritura por reemplazo y
+     `limpiar_cache()`.
+   - `src/rdfin/errores.py`: `ErrorDeDescarga`.
+   - `src/rdfin/creditopublico.py`: parámetros `url`, `refrescar` y `max_edad_horas`;
+     constante `MAX_EDAD_HORAS`; la lectura de transacciones pasa a
+     `_leer_transacciones()`; `FuenteNoConfigurada` nombra las tres formas de indicar la
+     fuente y se lanza al resolver la URL, por lo que `_leer_hoja()` ya no la comprueba.
+   - `src/rdfin/__init__.py`: expone `limpiar_cache`.
+   - `tests/conftest.py`: una protección automática hace que cada prueba use una caché
+     temporal y corra sin `RDFIN_URL_CP`.
+   - `tests/test_creditopublico.py`: 18 pruebas nuevas de caché y descarga; la de
+     fuente faltante comprueba que el mensaje nombra las tres formas.
+
+6. **Verificación.** `ruff check` y `ruff format --check` sin errores. Con
+   `RDFIN_ARCHIVO_CP`, 54 pruebas pasan con Python 3.13.18 (pandas 3.1.1) y 3.10.20
+   (pandas 2.3.3), incluida la dorada (antes 36). Sin la variable, pasan 53 y la dorada
+   se omite. Ninguna prueba usa la red: la descarga se simula con un reemplazo de
+   `descargar()` en las de caché y con `httpx.MockTransport` en las de descarga. La caché
+   real del usuario quedó intacta. Control de punta a punta fuera del repositorio, con el
+   Excel real servido por un servidor HTTP local: cuatro llamadas hicieron una sola
+   petición; la primera tardó 11.3 s y la segunda 0.02 s desde el parquet (6.1 MB), con
+   un resultado idéntico a leer el Excel. **No se corrió:** la descarga desde Crédito
+   Público (bloqueado en este entorno; etapa 5), CI, Windows y macOS.
+
 ### Etapa 2: cálculos oficiales (2026-11-19)
 
 1. **Resumen.** `snapshot()` y `rendimiento_actual()` reproducen el rendimiento oficial

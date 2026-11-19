@@ -1,14 +1,20 @@
+import json
 import os
-from datetime import date
+import time
+from datetime import date, datetime, timedelta, timezone
 from io import BytesIO
+from types import SimpleNamespace
 
+import httpx
 import openpyxl
 import pandas as pd
 import pytest
 from conftest import ENCABEZADO, FILAS, RESUMEN
 
+import rdfin
+from rdfin import _cache, _http
 from rdfin import creditopublico as cp
-from rdfin.errores import CambioDeFormato, FuenteNoConfigurada
+from rdfin.errores import CambioDeFormato, ErrorDeDescarga, FuenteNoConfigurada
 
 COLUMNAS_LIMPIAS = [
     "instrumento", "isin", "fecha", "vencimiento", "cupon_pct", "titulos",
@@ -131,8 +137,11 @@ def _modificar(excel, tmp_path, cambio, hoja="Transacciones por instrumento"):
 
 
 def test_sin_fuente():
-    with pytest.raises(FuenteNoConfigurada, match="archivo"):
+    # El mensaje nombra las tres formas de resolverlo.
+    with pytest.raises(FuenteNoConfigurada, match="`archivo`.*`url`.*RDFIN_URL_CP"):
         cp.transacciones()
+    with pytest.raises(FuenteNoConfigurada):
+        cp.resumen_oficial()
 
 
 def test_columna_faltante(excel, tmp_path):
@@ -363,3 +372,205 @@ def test_dorada():
     if not ruta:
         pytest.skip("requiere RDFIN_ARCHIVO_CP con la ruta del Excel real")
     comparar_con_oficial(cp.transacciones(ruta), cp.resumen_oficial(ruta))
+
+
+# Caché (la descarga se simula: ninguna prueba normal usa la red)
+
+URL = "https://fuente.example/transacciones.xlsx"
+
+
+@pytest.fixture
+def descargas(excel, monkeypatch):
+    """Simula la fuente: cada descarga devuelve el Excel sintético y anota la URL."""
+    urls = []
+
+    def descargar(url):
+        urls.append(url)
+        return excel.read_bytes()
+
+    monkeypatch.setattr(_http, "descargar", descargar)
+    return urls
+
+
+def _meta():
+    return _cache.directorio() / "creditopublico.json"
+
+
+def _envejecer(horas):
+    datos = json.loads(_meta().read_text("utf-8"))
+    hora = datetime.now(timezone.utc) - timedelta(hours=horas)
+    datos["hora_descarga"] = hora.isoformat()
+    _meta().write_text(json.dumps(datos), "utf-8")
+
+
+def test_cache_descarga_una_sola_vez(descargas, df):
+    primera = cp.transacciones(url=URL)
+    segunda = cp.transacciones(url=URL)
+    assert descargas == [URL]
+    # El parquet devuelve exactamente lo mismo que leer el Excel.
+    pd.testing.assert_frame_equal(primera, df)
+    pd.testing.assert_frame_equal(segunda, df)
+
+
+def test_cache_refrescar(descargas):
+    cp.transacciones(url=URL)
+    cp.transacciones(url=URL, refrescar=True)
+    assert descargas == [URL, URL]
+
+
+def test_cache_url_de_la_variable(descargas, monkeypatch):
+    monkeypatch.setenv("RDFIN_URL_CP", URL)
+    cp.transacciones()
+    assert descargas == [URL]
+
+
+def test_cache_cambio_de_version(descargas, monkeypatch):
+    cp.transacciones(url=URL)
+    monkeypatch.setattr(rdfin, "__version__", "9.9.9")
+    cp.transacciones(url=URL)
+    assert descargas == [URL, URL]
+    assert json.loads(_meta().read_text("utf-8"))["version_rdfin"] == "9.9.9"
+
+
+def test_cache_copia_vieja(descargas):
+    cp.transacciones(url=URL)
+    _envejecer(11)
+    cp.transacciones(url=URL)
+    assert len(descargas) == 1
+    _envejecer(13)
+    cp.transacciones(url=URL)
+    assert len(descargas) == 2
+
+
+def test_cache_otra_url(descargas):
+    otra = "https://fuente.example/otro.xlsx"
+    cp.transacciones(url=URL)
+    cp.transacciones(url=otra)
+    assert descargas == [URL, otra]
+
+
+def test_cache_la_descarga_borra_el_parquet(descargas):
+    cp.transacciones(url=URL)
+    assert _cache.parquet("creditopublico").exists()
+    # El modo crudo no vuelve a escribir el parquet.
+    cp.transacciones(url=URL, refrescar=True, crudo=True)
+    assert not _cache.parquet("creditopublico").exists()
+
+
+def test_cache_descarga_fallida_no_usa_la_copia_vieja(descargas, monkeypatch):
+    cp.transacciones(url=URL)
+    _envejecer(13)
+
+    def falla(url):
+        raise ErrorDeDescarga("sin respuesta")
+
+    monkeypatch.setattr(_http, "descargar", falla)
+    with pytest.raises(ErrorDeDescarga):
+        cp.transacciones(url=URL)
+
+
+def test_con_archivo_no_se_usa_la_cache(descargas, excel):
+    cp.transacciones(excel)
+    cp.resumen_oficial(excel)
+    assert descargas == []
+    assert not _cache.directorio().exists()
+
+
+def test_resumen_oficial_usa_la_cache(descargas, excel):
+    cp.transacciones(url=URL)
+    oficial = cp.resumen_oficial(url=URL)
+    assert descargas == [URL]
+    pd.testing.assert_frame_equal(oficial, cp.resumen_oficial(excel))
+
+
+def test_snapshot_pasa_la_url_a_transacciones(descargas, df):
+    pd.testing.assert_frame_equal(
+        cp.rendimiento_actual(url=URL), cp.rendimiento_actual(datos=df)
+    )
+    assert descargas == [URL]
+
+
+def test_limpiar_cache(descargas):
+    cp.transacciones(url=URL)
+    ajeno = _cache.directorio() / "ajeno.txt"
+    ajeno.write_text("no es de rdfin")
+    rdfin.limpiar_cache()
+    assert [p.name for p in _cache.directorio().iterdir()] == ["ajeno.txt"]
+    cp.transacciones(url=URL)
+    assert len(descargas) == 2
+
+
+# Descarga (servidor simulado con httpx.MockTransport, sin esperas reales)
+
+
+@pytest.fixture
+def servidor(monkeypatch):
+    """Cada petición recibe la siguiente de `servidor.respuestas`."""
+    servidor = SimpleNamespace(respuestas=[], peticiones=[], esperas=[])
+
+    def responder(peticion):
+        servidor.peticiones.append(peticion)
+        respuesta = servidor.respuestas.pop(0)
+        if isinstance(respuesta, Exception):
+            raise respuesta
+        return respuesta
+
+    original = httpx.Client
+    monkeypatch.setattr(
+        httpx,
+        "Client",
+        lambda **kw: original(transport=httpx.MockTransport(responder), **kw),
+    )
+    monkeypatch.setattr(time, "sleep", servidor.esperas.append)
+    return servidor
+
+
+def test_descarga_identifica_a_rdfin(servidor):
+    servidor.respuestas = [httpx.Response(200, content=b"excel")]
+    assert _http.descargar(URL) == b"excel"
+    agente = servidor.peticiones[0].headers["User-Agent"]
+    assert agente == f"rdfin/{rdfin.__version__} (+https://github.com/estescobar/rdfin)"
+    assert servidor.esperas == []
+
+
+def test_descarga_sigue_redirecciones(servidor):
+    nueva = "https://fuente.example/nuevo.xlsx"
+    servidor.respuestas = [
+        httpx.Response(302, headers={"Location": nueva}),
+        httpx.Response(200, content=b"excel"),
+    ]
+    assert _http.descargar(URL) == b"excel"
+    assert str(servidor.peticiones[-1].url) == nueva
+
+
+def test_descarga_reintenta_5xx_y_errores_de_conexion(servidor):
+    servidor.respuestas = [
+        httpx.Response(503),
+        httpx.ConnectError("sin red"),
+        httpx.Response(200, content=b"excel"),
+    ]
+    assert _http.descargar(URL) == b"excel"
+    assert len(servidor.peticiones) == 3
+    assert servidor.esperas == [1, 2]
+
+
+def test_descarga_reintenta_429(servidor):
+    servidor.respuestas = [httpx.Response(429), httpx.Response(200, content=b"x")]
+    assert _http.descargar(URL) == b"x"
+    assert servidor.esperas == [1]
+
+
+def test_descarga_falla_tras_tres_intentos(servidor):
+    servidor.respuestas = [httpx.Response(503)] * 3
+    with pytest.raises(ErrorDeDescarga, match="3 intentos.*HTTP 503"):
+        _http.descargar(URL)
+    assert len(servidor.peticiones) == 3
+    assert servidor.esperas == [1, 2]
+
+
+def test_descarga_4xx_falla_de_inmediato(servidor):
+    servidor.respuestas = [httpx.Response(404)]
+    with pytest.raises(ErrorDeDescarga, match="HTTP 404"):
+        _http.descargar(URL)
+    assert len(servidor.peticiones) == 1
+    assert servidor.esperas == []

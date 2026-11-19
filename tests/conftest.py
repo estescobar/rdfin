@@ -126,6 +126,13 @@ def escribir_excel(ruta):
     return ruta
 
 
+@pytest.fixture(autouse=True)
+def _aislar(tmp_path, monkeypatch):
+    # Ninguna prueba usa la caché del usuario ni la URL real de la fuente.
+    monkeypatch.setenv("RDFIN_CACHE", str(tmp_path / "cache"))
+    monkeypatch.delenv("RDFIN_URL_CP", raising=False)
+
+
 @pytest.fixture
 def excel(tmp_path):
     return escribir_excel(tmp_path / "sintetico.xlsx")

@@ -5,6 +5,66 @@ origen, implicaciones, código tocado y verificación.
 
 ## Sin publicar
 
+### Etapa 2: cálculos oficiales (2026-11-19)
+
+1. **Resumen.** `snapshot()` y `rendimiento_actual()` reproducen el rendimiento oficial
+   por bono a cualquier fecha, y `resumen_oficial()` lee la hoja `Rendimiento Actual`.
+   La prueba dorada confirma, con el Excel real, que cada bono calculado tiene su fila
+   oficial con tolerancia 1e-9.
+
+2. **Antes.** El paquete entregaba las operaciones limpias, pero no calculaba
+   rendimientos por bono ni leía la hoja oficial.
+
+3. **Cambio y origen.** El método es el de la sección 4 de
+   `INSTRUCCIONES_rdfin_v0.1_desde_cero.md`: el último día en que se negoció cada bono,
+   con promedio ponderado por cantidad de títulos y sin excluir duplicados ni atípicos.
+   Las decisiones aprobadas en esta etapa son siete:
+   - Sin `fecha`, la referencia es la última fecha con operaciones en cualquier moneda,
+     como el "Actualizado al" de la hoja oficial.
+   - `excluir_duplicados` y `excluir_atipicos` quitan filas antes de buscar el último
+     día de cada bono.
+   - El snapshot se ordena por vencimiento y luego por instrumento, porque COV2040 e
+     INF2040 vencen ambos el 28/2/2040.
+   - ISIN, vencimiento y cupón se toman del último día del bono. En el archivo real
+     cuatro instrumentos tienen dos cupones en su historia (MH12022 por redondeo;
+     MH12031, MH22028 y SEH12017 por filas sueltas), pero nunca dos en un mismo día.
+   - Una `moneda` distinta de `DOP` y `USD` lanza `ValueError`.
+   - La hoja leída usa la fila de Excel como índice, para que los mensajes de error de
+     las dos hojas nombren la fila correcta.
+   - El análisis de sensibilidad de los umbrales de atípico se versiona en `analisis/`.
+
+4. **Implicaciones.** El snapshot entrega, por bono, el rendimiento, la fecha de la
+   última operación y los días desde entonces. Así queda visible lo que la hoja oficial
+   no indica: en el archivo del 17/11/2026, 17 de los 30 bonos vigentes no se negociaron
+   ese día y el dato más viejo es de MH12038, del 27/5/2026. `transacciones(crudo=True)`
+   usa ahora la fila de Excel como índice (2, 3, …) en lugar de 0, 1, …; el resultado
+   limpio no cambia.
+   La sensibilidad muestra que en DOP ningún bono vigente cambia su rendimiento actual
+   al excluir atípicos con ninguno de los 9 pares de umbrales. En USD cambian MHUS12026
+   y MHUS12027 cuando el mínimo es 0 o 1, porque sus rendimientos recientes son negativos
+   o muy bajos. Con el umbral vigente (0 / 30) se marcan 1,586 filas de 15 instrumentos.
+
+5. **Código tocado.**
+   - `src/rdfin/creditopublico.py`: `snapshot()`, `rendimiento_actual()`,
+     `resumen_oficial()`, constante `HOJA_RESUMEN`; `_leer_hoja()` recibe `encabezado`
+     y pone la fila de Excel como índice; `_exigir()` ya no suma 2 a la fila.
+   - `tests/conftest.py`: hoja `Rendimiento Actual` sintética con la disposición de la
+     oficial y los valores esperados de los 5 bonos vigentes (`RESUMEN`).
+   - `tests/test_creditopublico.py`: 17 pruebas nuevas de snapshot, hoja oficial y
+     prueba dorada; la del modo crudo comprueba el índice; `_modificar()` acepta la hoja.
+   - `analisis/sensibilidad_atipicos.py` (nuevo) y su salida
+     `analisis/sensibilidad_atipicos.md` (nuevo, solo agregados).
+
+6. **Verificación.** Tolerancia de 1e-9, fijada en la guía antes de correr. `ruff check`
+   y `ruff format --check` sin errores. Con Python 3.13.18 (pandas 3.1.1) y 3.10.20
+   (pandas 2.3.3), y `RDFIN_ARCHIVO_CP` apuntando al Excel del 17/11/2026: 36 pruebas
+   pasan, incluida la dorada (antes 19). Sin la variable, la dorada se omite y pasan 35.
+   Para comprobar que la comparación dorada detecta errores, se corrió dos veces fuera
+   del repositorio con la hoja oficial alterada: al sumar 1e-8 a un rendimiento falla
+   (`MH22028` sin fila oficial) y al agregar una fila con un vencimiento y un rendimiento
+   inventados también falla. Sin alterar, pasa. La tabla de sensibilidad está en
+   `analisis/sensibilidad_atipicos.md`. **No se corrió:** CI, Windows y macOS.
+
 ### Mismo tipo de texto en `instrumento`, `isin` y `moneda` (2026-11-19)
 
 1. **Resumen.** Las tres columnas de texto de `transacciones()` tienen ahora el mismo

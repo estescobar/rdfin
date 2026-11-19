@@ -101,6 +101,10 @@ def transacciones(
     df["cupon_pct"] *= 100
     df["rendimiento_pct"] *= 100
     df["moneda"] = monedas.map(MONEDAS)
+    # Mismo tipo de texto que `moneda` en cada versión de pandas, sin volver
+    # texto los vacíos.
+    df["instrumento"] = hoja["instrumento"].infer_objects()
+    df["isin"] = hoja["ISIN"].infer_objects()
 
     df["plazo_anios"] = (df["vencimiento"] - df["fecha"]).dt.days / 365
     df["duplicado"] = duplicado[df.index]

@@ -87,6 +87,10 @@ def test_marca_de_atipico(df):
     assert df["atipico"].sum() == 2
 
 
+def test_columnas_de_texto_con_el_mismo_tipo(df):
+    assert df["instrumento"].dtype == df["isin"].dtype == df["moneda"].dtype
+
+
 def test_tipos_con_decimales_y_vacios(df):
     adm = _bono(df, "ADM12016").iloc[0]
     assert adm["titulos"] == 748.61

@@ -5,6 +5,36 @@ origen, implicaciones, código tocado y verificación.
 
 ## Sin publicar
 
+### Mismo tipo de texto en `instrumento`, `isin` y `moneda` (2026-11-19)
+
+1. **Resumen.** Las tres columnas de texto de `transacciones()` tienen ahora el mismo
+   tipo dentro de cada versión de pandas.
+
+2. **Antes.** Con pandas 3, `moneda` salía como `str` y `instrumento` e `isin` como
+   `object`, porque las dos últimas conservaban el tipo de lectura. Con pandas 2 las tres
+   eran `object`. La diferencia no cambiaba valores, pero podía confundir al usuario y a
+   la caché en parquet de la etapa 3.
+
+3. **Cambio y origen.** Aprobado tras la etapa 1. `instrumento` e `isin` pasan por
+   `infer_objects()`, que da el tipo de texto por defecto de cada versión y conserva los
+   vacíos. Se descartó `astype(str)` porque con pandas 2 convierte un vacío en el texto
+   `'None'`.
+
+4. **Implicaciones.** Con pandas 3 las tres columnas son `str`; con pandas 2, `object`.
+   Los valores no cambian. Las fechas siguen con la resolución de cada versión
+   (`datetime64[us]` con pandas 3, `datetime64[ns]` con pandas 2).
+
+5. **Código tocado.**
+   - `src/rdfin/creditopublico.py`: `transacciones()` convierte `instrumento` e `isin`.
+   - `tests/test_creditopublico.py`: prueba nueva
+     `test_columnas_de_texto_con_el_mismo_tipo`.
+
+6. **Verificación.** La prueba nueva falla con el código anterior en pandas 3.1.1
+   (`dtype('O')` frente a `StringDtype`) y pasa con el cambio. `ruff` sin errores;
+   `pytest`, 19 pruebas pasan con Python 3.13 y 3.10 (antes 18). Con el Excel real y
+   pandas 3, las tres columnas son `str` y siguen 168,021 filas, 19,283 duplicados y
+   1,586 atípicos, como antes.
+
 ### Etapa 1: lectura y limpieza de transacciones (2026-11-19)
 
 1. **Resumen.** `creditopublico.transacciones()` lee la hoja de transacciones del Excel

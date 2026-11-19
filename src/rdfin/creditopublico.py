@@ -15,6 +15,7 @@ import pandas as pd
 from .errores import CambioDeFormato, FuenteNoConfigurada
 
 HOJA_TRANSACCIONES = "Transacciones por instrumento"
+HOJA_RESUMEN = "Rendimiento Actual"
 
 # Nombre en la fuente -> nombre en rdfin, en el orden de la hoja.
 COLUMNAS = {
@@ -34,8 +35,24 @@ COLUMNAS = {
 }
 MONEDAS = {"Pesos": "DOP", "Dólares": "USD"}
 
-# Provisionales: no tienen respaldo definitivo y se someten a análisis de
-# sensibilidad. Fuera de [mínimo, máximo] la fila se marca como atípica.
+_COLUMNAS_SNAPSHOT = [
+    "instrumento",
+    "fecha_referencia",
+    "isin",
+    "vencimiento",
+    "plazo_anios",
+    "cupon_pct",
+    "rendimiento_pct",
+    "fecha_operacion",
+    "dias_desde_operacion",
+    "n_operaciones",
+    "titulos",
+    "valor_transado",
+]
+
+# Provisionales: no tienen respaldo definitivo. Su sensibilidad está en
+# analisis/sensibilidad_atipicos.md. Fuera de [mínimo, máximo] la fila se marca
+# como atípica.
 RENDIMIENTO_MIN_PCT = 0.0
 RENDIMIENTO_MAX_PCT = 30.0
 
@@ -53,14 +70,15 @@ def transacciones(
 
     `archivo` es la ruta, los bytes o un `BytesIO` del Excel de Crédito Público.
     Con `crudo=True` devuelve la hoja tal cual: las 13 columnas con sus nombres y
-    valores originales, todas las filas y sin marcas.
+    valores originales, todas las filas y sin marcas, con el número de fila de
+    Excel como índice.
 
     En el modo normal renombra las columnas, convierte fechas, pasa cupón y
     rendimiento a porcentaje y las monedas a `DOP` y `USD`, y agrega
     `plazo_anios` (ACT/365), `duplicado` y `atipico`. Las filas dudosas se marcan,
     no se borran; solo se descartan las filas sin instrumento.
     """
-    hoja = _leer_hoja(archivo, HOJA_TRANSACCIONES)
+    hoja = _leer_hoja(archivo, HOJA_TRANSACCIONES, encabezado=True)
     faltan = [c for c in COLUMNAS if c not in hoja.columns]
     if faltan:
         raise CambioDeFormato(
@@ -114,7 +132,122 @@ def transacciones(
     return df.sort_values(["fecha", "instrumento"]).reset_index(drop=True)
 
 
-def _leer_hoja(archivo: Archivo | None, nombre: str) -> pd.DataFrame:
+def snapshot(
+    fecha=None,
+    *,
+    moneda: str = "DOP",
+    datos: pd.DataFrame | None = None,
+    excluir_duplicados: bool = False,
+    excluir_atipicos: bool = False,
+    **kwargs,
+) -> pd.DataFrame:
+    """Rendimiento de cada bono vigente a `fecha`, con el método oficial.
+
+    Para cada bono de `moneda` con operaciones hasta `fecha` y vencimiento
+    posterior, toma el último día en que se negoció y promedia los rendimientos de
+    ese día ponderando por cantidad de títulos. Así calcula Crédito Público la hoja
+    `Rendimiento Actual`: incluye las filas duplicadas y atípicas y no pondera por
+    valor transado. `excluir_duplicados` y `excluir_atipicos` quitan esas filas
+    antes de buscar el último día de cada bono.
+
+    `fecha=None` es la última fecha con operaciones en cualquier moneda, como el
+    "Actualizado al" de la hoja oficial. `datos` es el resultado de
+    `transacciones()`; si falta, se llama a `transacciones(**kwargs)`.
+
+    Una fila por bono, ordenada por vencimiento y luego por instrumento, porque hay
+    bonos distintos con el mismo vencimiento.
+    """
+    if moneda not in MONEDAS.values():
+        raise ValueError(f"`moneda` debe ser 'DOP' o 'USD', no {moneda!r}.")
+    if datos is None:
+        datos = transacciones(**kwargs)
+    referencia = datos["fecha"].max() if fecha is None else pd.Timestamp(fecha)
+
+    d = datos[
+        (datos["moneda"] == moneda)
+        & (datos["fecha"] <= referencia)
+        & (datos["vencimiento"] > referencia)
+    ]
+    if excluir_duplicados:
+        d = d[~d["duplicado"]]
+    if excluir_atipicos:
+        d = d[~d["atipico"]]
+    d = d[d["fecha"] == d.groupby("instrumento")["fecha"].transform("max")]
+
+    # ISIN, vencimiento y cupón salen del último día del bono: en el archivo real
+    # nunca hay dos valores distintos para un mismo instrumento en un mismo día.
+    bonos = (
+        d.assign(ponderado=d["rendimiento_pct"] * d["titulos"])
+        .groupby("instrumento")
+        .agg(
+            isin=("isin", "first"),
+            vencimiento=("vencimiento", "first"),
+            cupon_pct=("cupon_pct", "first"),
+            fecha_operacion=("fecha", "first"),
+            n_operaciones=("fecha", "size"),
+            titulos=("titulos", "sum"),
+            valor_transado=("valor_transado", "sum"),
+            ponderado=("ponderado", "sum"),
+        )
+        .reset_index()
+    )
+    bonos["rendimiento_pct"] = bonos["ponderado"] / bonos["titulos"]
+    bonos["fecha_referencia"] = referencia
+    bonos["plazo_anios"] = (bonos["vencimiento"] - referencia).dt.days / 365
+    bonos["dias_desde_operacion"] = (referencia - bonos["fecha_operacion"]).dt.days
+    bonos = bonos.sort_values(["vencimiento", "instrumento"]).reset_index(drop=True)
+    return bonos[_COLUMNAS_SNAPSHOT]
+
+
+def rendimiento_actual(
+    moneda: str = "DOP", *, datos: pd.DataFrame | None = None, **kwargs
+) -> pd.DataFrame:
+    """`snapshot()` a la última fecha con operaciones: replica la hoja oficial."""
+    return snapshot(moneda=moneda, datos=datos, **kwargs)
+
+
+def resumen_oficial(archivo: Archivo | None = None) -> pd.DataFrame:
+    """La hoja `Rendimiento Actual` tal como la publica Crédito Público.
+
+    Una fila por fila de la tabla, en el orden de la hoja, con `vencimiento`,
+    `moneda` y `rendimiento_pct`. La hoja no trae el nombre del instrumento. El
+    encabezado se busca por sus celdas `Vencimiento`, `DOP` y `USD`, no por
+    posición; la tabla termina en la primera fila cuyo vencimiento no es fecha.
+    """
+    hoja = _leer_hoja(archivo, HOJA_RESUMEN, encabezado=False)
+    celdas = {nombre: hoja.eq(nombre) for nombre in ("Vencimiento", "DOP", "USD")}
+    filas = pd.concat([c.any(axis=1) for c in celdas.values()], axis=1).all(axis=1)
+    if not filas.any():
+        raise CambioDeFormato(
+            f"En la hoja {HOJA_RESUMEN!r} no hay una fila con las celdas "
+            "'Vencimiento', 'DOP' y 'USD'."
+        )
+    fila = filas.idxmax()
+    tabla = hoja.loc[fila + 1 :, [c.loc[fila].idxmax() for c in celdas.values()]]
+    tabla.columns = list(celdas)
+    es_fecha = tabla["Vencimiento"].map(lambda v: isinstance(v, datetime))
+    tabla = tabla[(~es_fecha).cumsum() == 0]
+
+    con_valor = tabla[["DOP", "USD"]].notna()
+    mal = con_valor.sum(axis=1) != 1
+    if mal.any():
+        raise CambioDeFormato(
+            f"En la hoja {HOJA_RESUMEN!r}, la fila {mal.idxmax()} de Excel debe traer "
+            "el rendimiento en una sola moneda."
+        )
+    return pd.DataFrame(
+        {
+            "vencimiento": pd.to_datetime(tabla["Vencimiento"]),
+            "moneda": con_valor["USD"].map({False: "DOP", True: "USD"}),
+            "rendimiento_pct": _a_numero(tabla["DOP"]).fillna(_a_numero(tabla["USD"])),
+        }
+    ).reset_index(drop=True)
+
+
+def _leer_hoja(
+    archivo: Archivo | None, nombre: str, *, encabezado: bool
+) -> pd.DataFrame:
+    """Lee una hoja con el número de fila de Excel como índice."""
     if archivo is None:
         raise FuenteNoConfigurada(
             "No se indicó la fuente: pase en `archivo` la ruta, los bytes o un BytesIO "
@@ -128,7 +261,12 @@ def _leer_hoja(archivo: Archivo | None, nombre: str) -> pd.DataFrame:
                 f"Falta la hoja {nombre!r}. Hojas en el archivo: "
                 f"{', '.join(libro.sheet_names)}."
             )
-        return pd.read_excel(libro, sheet_name=nombre, dtype=object)
+        hoja = pd.read_excel(
+            libro, sheet_name=nombre, dtype=object, header=0 if encabezado else None
+        )
+    # Con encabezado, la primera fila de datos es la 2 de Excel.
+    hoja.index += 2 if encabezado else 1
+    return hoja
 
 
 def _a_fecha(serie: pd.Series) -> pd.Series:
@@ -150,9 +288,8 @@ def _a_numero(serie: pd.Series) -> pd.Series:
 
 def _exigir(validos: pd.Series, serie: pd.Series) -> None:
     if not validos.all():
-        indice = validos.idxmin()
-        # El índice 0 es la fila 2 de Excel: la fila 1 es el encabezado.
+        fila = validos.idxmin()
         raise CambioDeFormato(
             f"La columna {serie.name!r} trae un valor que no se puede convertir en la "
-            f"fila {indice + 2} de Excel: {serie[indice]!r}."
+            f"fila {fila} de Excel: {serie[fila]!r}."
         )

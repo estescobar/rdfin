@@ -89,11 +89,34 @@ FILAS = [
 # Como en el archivo real, las columnas N a R traen datos ajenos a la tabla.
 BASURA = {"N2": "PX_LAST", "O3": 3.789, "P4": d(2023, 5, 5), "R5": "YLD_YTM_MID"}
 
+# Hoja `Rendimiento Actual` con los valores esperados de los bonos vigentes al
+# 17/11/2026, según los casos de FILAS: (vencimiento, moneda, rendimiento en %).
+RESUMEN = [
+    (d(2030, 1, 11), "DOP", 11.5),  # MH12030
+    (d(2035, 1, 5), "DOP", 9.6835),  # MH12035, operado por última vez el 10/11
+    (d(2041, 5, 29), "DOP", 29.6 / 3),  # MH22041, con la fila duplicada
+    (d(2026, 12, 27), "USD", -0.66),  # MHUS12026
+    (d(2027, 3, 5), "USD", 1.86),  # MHUS12027
+]
+
+
+def _escribir_resumen(hoja):
+    # Misma disposición que la hoja oficial: título en B4, encabezado en B5:D5.
+    hoja["B4"] = "Rendimiento Bonos Domésticos (%)"
+    hoja.append([None, "Vencimiento", "DOP", "USD"])
+    for vencimiento, moneda, valor in RESUMEN:
+        dop, usd = (valor, None) if moneda == "DOP" else (None, valor)
+        hoja.append([None, vencimiento, dop, usd])
+    hoja.append([None, "* Actualizado al", d(2026, 11, 17)])
+    hoja.append([])
+    hoja.append([None, "Nota metodológica de ejemplo."])
+
 
 def escribir_excel(ruta):
     libro = openpyxl.Workbook()
-    hoja = libro.active
-    hoja.title = "Transacciones por instrumento"
+    _escribir_resumen(libro.active)
+    libro.active.title = "Rendimiento Actual"
+    hoja = libro.create_sheet("Transacciones por instrumento")
     hoja.append(ENCABEZADO)
     for fila in FILAS:
         hoja.append(fila)

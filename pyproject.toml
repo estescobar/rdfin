@@ -1,0 +1,44 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "rdfin"
+dynamic = ["version"]
+description = "Datos limpios del mercado financiero dominicano en pandas"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Esteban Escobar" }]
+dependencies = [
+    "httpx",
+    "openpyxl",
+    "pandas",
+    "platformdirs",
+    "pyarrow",
+]
+
+[project.urls]
+Repository = "https://github.com/estescobar/rdfin"
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "ruff",
+]
+
+[tool.hatch.version]
+path = "src/rdfin/__init__.py"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Las pruebas de red solo corren cuando se piden con `pytest -m red`.
+addopts = "-m 'not red'"
+markers = [
+    "dorada: compara con el Excel real; requiere RDFIN_ARCHIVO_CP",
+    "red: descarga la fuente real; requiere RDFIN_URL_CP",
+]

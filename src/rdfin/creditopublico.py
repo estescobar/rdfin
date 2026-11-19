@@ -6,12 +6,14 @@ https://www.creditopublico.gob.do/inicio/mercado_de_capitales
 
 from __future__ import annotations
 
+import os
 from datetime import datetime
 from io import BytesIO
 from os import PathLike
 
 import pandas as pd
 
+from . import _cache
 from .errores import CambioDeFormato, FuenteNoConfigurada
 
 HOJA_TRANSACCIONES = "Transacciones por instrumento"
@@ -56,6 +58,9 @@ _COLUMNAS_SNAPSHOT = [
 RENDIMIENTO_MIN_PCT = 0.0
 RENDIMIENTO_MAX_PCT = 30.0
 
+# Provisional: falta averiguar a qué hora actualiza la fuente su archivo.
+MAX_EDAD_HORAS = 12
+
 # Parte de las filas guarda las fechas como número de serie de Excel: días
 # contados desde esta base.
 _BASE_EXCEL = pd.Timestamp("1899-12-30")
@@ -64,11 +69,20 @@ Archivo = str | PathLike | bytes | BytesIO
 
 
 def transacciones(
-    archivo: Archivo | None = None, *, crudo: bool = False
+    archivo: Archivo | None = None,
+    *,
+    url: str | None = None,
+    crudo: bool = False,
+    refrescar: bool = False,
+    max_edad_horas: float = MAX_EDAD_HORAS,
 ) -> pd.DataFrame:
     """Operaciones del mercado secundario, una fila por operación.
 
-    `archivo` es la ruta, los bytes o un `BytesIO` del Excel de Crédito Público.
+    `archivo` es la ruta, los bytes o un `BytesIO` del Excel de Crédito Público; si
+    se pasa, no se usa la caché. Si no, el Excel se descarga de `url` o de la
+    variable de entorno `RDFIN_URL_CP` y se guarda en la caché, que se renueva con
+    `refrescar=True` o cuando la copia tiene más de `max_edad_horas`.
+
     Con `crudo=True` devuelve la hoja tal cual: las 13 columnas con sus nombres y
     valores originales, todas las filas y sin marcas, con el número de fila de
     Excel como índice.
@@ -78,6 +92,34 @@ def transacciones(
     `plazo_anios` (ACT/365), `duplicado` y `atipico`. Las filas dudosas se marcan,
     no se borran; solo se descartan las filas sin instrumento.
     """
+    if archivo is not None:
+        return _leer_transacciones(archivo, crudo=crudo)
+    excel = _excel_en_cache(url, refrescar, max_edad_horas)
+    if crudo:
+        return _leer_transacciones(excel, crudo=True)
+    ruta = _cache.parquet(_cache.CREDITOPUBLICO)
+    if not ruta.exists():
+        _cache.escribir_parquet(_leer_transacciones(excel, crudo=False), ruta)
+    # Se lee siempre del parquet para que la primera llamada y las siguientes
+    # devuelvan exactamente lo mismo.
+    return pd.read_parquet(ruta)
+
+
+def _excel_en_cache(url: str | None, refrescar: bool, max_edad_horas: float):
+    url = url or os.environ.get("RDFIN_URL_CP")
+    if not url:
+        raise FuenteNoConfigurada(
+            "No se indicó de dónde leer el Excel de Crédito Público. Hay tres formas: "
+            "pasar en `archivo` la ruta, los bytes o un BytesIO del Excel; pasar en "
+            "`url` el enlace del Excel; o definir la variable de entorno RDFIN_URL_CP "
+            "con ese enlace."
+        )
+    return _cache.excel(
+        _cache.CREDITOPUBLICO, url, refrescar=refrescar, max_edad_horas=max_edad_horas
+    )
+
+
+def _leer_transacciones(archivo: Archivo, *, crudo: bool) -> pd.DataFrame:
     hoja = _leer_hoja(archivo, HOJA_TRANSACCIONES, encabezado=True)
     faltan = [c for c in COLUMNAS if c not in hoja.columns]
     if faltan:
@@ -206,14 +248,24 @@ def rendimiento_actual(
     return snapshot(moneda=moneda, datos=datos, **kwargs)
 
 
-def resumen_oficial(archivo: Archivo | None = None) -> pd.DataFrame:
+def resumen_oficial(
+    archivo: Archivo | None = None,
+    *,
+    url: str | None = None,
+    refrescar: bool = False,
+    max_edad_horas: float = MAX_EDAD_HORAS,
+) -> pd.DataFrame:
     """La hoja `Rendimiento Actual` tal como la publica Crédito Público.
 
     Una fila por fila de la tabla, en el orden de la hoja, con `vencimiento`,
     `moneda` y `rendimiento_pct`. La hoja no trae el nombre del instrumento. El
     encabezado se busca por sus celdas `Vencimiento`, `DOP` y `USD`, no por
     posición; la tabla termina en la primera fila cuyo vencimiento no es fecha.
+
+    La fuente y la caché funcionan como en `transacciones()`.
     """
+    if archivo is None:
+        archivo = _excel_en_cache(url, refrescar, max_edad_horas)
     hoja = _leer_hoja(archivo, HOJA_RESUMEN, encabezado=False)
     celdas = {nombre: hoja.eq(nombre) for nombre in ("Vencimiento", "DOP", "USD")}
     filas = pd.concat([c.any(axis=1) for c in celdas.values()], axis=1).all(axis=1)
@@ -244,15 +296,8 @@ def resumen_oficial(archivo: Archivo | None = None) -> pd.DataFrame:
     ).reset_index(drop=True)
 
 
-def _leer_hoja(
-    archivo: Archivo | None, nombre: str, *, encabezado: bool
-) -> pd.DataFrame:
+def _leer_hoja(archivo: Archivo, nombre: str, *, encabezado: bool) -> pd.DataFrame:
     """Lee una hoja con el número de fila de Excel como índice."""
-    if archivo is None:
-        raise FuenteNoConfigurada(
-            "No se indicó la fuente: pase en `archivo` la ruta, los bytes o un BytesIO "
-            "del Excel de Crédito Público."
-        )
     if isinstance(archivo, bytes):
         archivo = BytesIO(archivo)
     with pd.ExcelFile(archivo, engine="openpyxl") as libro:

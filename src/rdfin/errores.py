@@ -11,3 +11,7 @@ class FuenteNoConfigurada(RdfinError):
 
 class CambioDeFormato(RdfinError):
     """El archivo de la fuente no tiene la estructura esperada."""
+
+
+class ErrorDeDescarga(RdfinError):
+    """La fuente no respondió o rechazó la descarga."""

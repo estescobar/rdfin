@@ -1,0 +1,31 @@
+name: Canario
+
+# Avisa si la fuente cambió: descarga el Excel real y repite la prueba dorada.
+on:
+  schedule:
+    # Lunes a las 12:17 UTC (8:17 en Santo Domingo).
+    - cron: "17 12 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  fuente-real:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+      - run: uv sync --locked
+      - run: uv run pytest -m red
+        env:
+          RDFIN_URL_CP: ${{ vars.RDFIN_URL_CP }}
+      - if: failure()
+        run: >
+          gh issue create --repo "$GITHUB_REPOSITORY"
+          --title "Canario: falló la prueba contra la fuente real ($(date -u +%F))"
+          --body "La corrida $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID
+          falló. Revisar si Crédito Público cambió el formato o el enlace del Excel."
+        env:
+          GH_TOKEN: ${{ github.token }}

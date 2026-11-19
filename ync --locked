@@ -1,0 +1,126 @@
+[33mcommit 5aa5276ede568ae5ffc18dab8e8bdfb12e581665[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mdesarrollo[m[33m, [m[1;31mbundle/desarrollo[m[33m, [m[1;31mbundle/HEAD[m[33m)[m
+Merge: d220513 8ac67a5
+Author: Esteban Escobar <65739636+estescobar@users.noreply.github.com>
+Date:   Thu Nov 19 10:32:25 2026 -0400
+
+    Merge etapa-3-cache en desarrollo
+
+[33mcommit 8ac67a512f21b4969bd5003059881bc6de356f7c[m
+Author: Esteban Escobar <65739636+estescobar@users.noreply.github.com>
+Date:   Thu Nov 19 10:32:25 2026 -0400
+
+    Etapa 3: caché y descarga
+    
+    _http.descargar() con reintentos; _cache con xlsx, parquet y json;
+    url, refrescar y max_edad_horas; limpiar_cache(); pruebas sin red.
+
+ CHANGELOG.md                 |  57 [32m++++++++++++[m
+ src/rdfin/__init__.py        |   3 [32m+[m[31m-[m
+ src/rdfin/_cache.py          |  92 [32m++++++++++++++++++[m
+ src/rdfin/_http.py           |  45 [32m+++++++++[m
+ src/rdfin/creditopublico.py  |  67 [32m++++++++++[m[31m---[m
+ src/rdfin/errores.py         |   4 [32m+[m
+ tests/conftest.py            |   7 [32m++[m
+ tests/test_creditopublico.py | 217 [32m++++++++++++++++++++++++++++++++++++++++++[m[31m-[m
+ 8 files changed, 477 insertions(+), 15 deletions(-)
+
+[33mcommit d220513217176ba52bcad2c2f8c489cfb5182c81[m
+Merge: e72f066 e826bbe
+Author: Esteban Escobar <65739636+estescobar@users.noreply.github.com>
+Date:   Thu Nov 19 10:19:54 2026 -0400
+
+    Merge etapa-2-calculos en desarrollo
+
+[33mcommit e826bbe6a5607d1a95f3aaa047a5e99747ba886e[m
+Author: Esteban Escobar <65739636+estescobar@users.noreply.github.com>
+Date:   Thu Nov 19 10:19:54 2026 -0400
+
+    Etapa 2: cálculos oficiales
+    
+    snapshot(), rendimiento_actual() y resumen_oficial(); hoja oficial
+    sintética; prueba dorada; análisis de sensibilidad de atípicos.
+
+ CHANGELOG.md                      |  60 [32m++++++++++++[m
+ analisis/sensibilidad_atipicos.md |  17 [32m++++[m
+ analisis/sensibilidad_atipicos.py |  93 [32m++++++++++++++++++[m
+ src/rdfin/creditopublico.py       | 155 [32m++++++++++++++++++++++++++++[m[31m--[m
+ tests/conftest.py                 |  27 [32m+++++[m[31m-[m
+ tests/test_creditopublico.py      | 193 [32m+++++++++++++++++++++++++++++++++++++[m[31m-[m
+ 6 files changed, 531 insertions(+), 14 deletions(-)
+
+[33mcommit e72f066a617fb8ed3d931c73c4a24fc448793361[m
+Merge: db8be6b 1975b24
+Author: Esteban Escobar <65739636+estescobar@users.noreply.github.com>
+Date:   Thu Nov 19 10:07:47 2026 -0400
+
+    Merge tipos-texto en desarrollo
+
+[33mcommit 1975b2465fe2348f136dc23e227e54bb0fc5a7d9[m
+Author: Esteban Escobar <65739636+estescobar@users.noreply.github.com>
+Date:   Thu Nov 19 10:07:47 2026 -0400
+
+    Mismo tipo de texto en instrumento, isin y moneda
+
+ CHANGELOG.md                 | 30 [32m++++++++++++++++++++++++++++++[m
+ src/rdfin/creditopublico.py  |  4 [32m++++[m
+ tests/test_creditopublico.py |  4 [32m++++[m
+ 3 files changed, 38 insertions(+)
+
+[33mcommit db8be6b7c20a4fe93715a3f912c55e1f35d1ee14[m
+Merge: 432388d 8d423f5
+Author: Esteban Escobar <65739636+estescobar@users.noreply.github.com>
+Date:   Thu Nov 19 10:03:16 2026 -0400
+
+    Merge etapa-1-lectura en desarrollo
+
+[33mcommit 8d423f5e3c0ef2f79ae5f6c00a5a59c91dce554c[m
+Author: Esteban Escobar <65739636+estescobar@users.noreply.github.com>
+Date:   Thu Nov 19 10:03:16 2026 -0400
+
+    Etapa 1: lectura y limpieza de transacciones
+    
+    transacciones() con fechas de serie, unidades en %, monedas, plazo
+    y marcas de duplicado y atípico; errores de formato; Excel sintético.
+
+ CHANGELOG.md                 |  53 [32m+++++++++++++[m
+ src/rdfin/__init__.py        |   4 [32m+[m
+ src/rdfin/creditopublico.py  | 154 [32m++++++++++++++++++++++++++++++++++++++[m
+ src/rdfin/errores.py         |  13 [32m++++[m
+ tests/conftest.py            | 108 [32m+++++++++++++++++++++++++++[m
+ tests/test_creditopublico.py | 174 [32m+++++++++++++++++++++++++++++++++++++++++++[m
+ 6 files changed, 506 insertions(+)
+
+[33mcommit 432388d785ea3e5bb968edea83acab9a786147dc[m
+Merge: b51f5c4 8715e40
+Author: Esteban Escobar <65739636+estescobar@users.noreply.github.com>
+Date:   Thu Nov 19 09:51:34 2026 -0400
+
+    Merge etapa-0-esqueleto en desarrollo
+
+[33mcommit 8715e40adbb2846a92baf39fb808e53ff4225c32[m
+Author: Esteban Escobar <65739636+estescobar@users.noreply.github.com>
+Date:   Thu Nov 19 09:51:28 2026 -0400
+
+    Etapa 0: esqueleto del paquete
+    
+    pyproject con hatchling, ruff y pytest; uv.lock; __init__ con la
+    versión; prueba de versión; ci.yml; licencia MIT; README y CHANGELOG.
+
+ .github/workflows/ci.yml |  23 [32m++[m
+ .gitignore               |  15 [32m+[m
+ .python-version          |   1 [32m+[m
+ CHANGELOG.md             |  47 [32m+++[m
+ LICENSE                  |  21 [32m++[m
+ README.md                |   7 [32m+[m
+ pyproject.toml           |  44 [32m+++[m
+ src/rdfin/__init__.py    |   3 [32m+[m
+ src/rdfin/py.typed       |   0
+ tests/test_paquete.py    |   8 [32m+[m
+ uv.lock                  | 916 [32m+++++++++++++++++++++++++++++++++++++++++++++++[m
+ 11 files changed, 1085 insertions(+)
+
+[33mcommit b51f5c4a53e3728385e9f858b548e4f1038a0f83[m[33m ([m[1;31mbundle/main[m[33m, [m[1;32mmain[m[33m)[m
+Author: Esteban Escobar <65739636+estescobar@users.noreply.github.com>
+Date:   Thu Nov 19 09:50:28 2026 -0400
+
+    Inicio del repositorio

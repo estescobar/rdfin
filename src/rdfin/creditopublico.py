@@ -14,7 +14,12 @@ from os import PathLike
 import pandas as pd
 
 from . import _cache
-from .errores import CambioDeFormato, FuenteNoConfigurada
+from .errores import CambioDeFormato
+
+# El Excel que enlaza la página de mercado de capitales de Crédito Público.
+URL_POR_DEFECTO = (
+    "https://www.creditopublico.gob.do/Content/archivos/04Nueva%20Metodolog%C3%ADa.xlsx"
+)
 
 HOJA_TRANSACCIONES = "Transacciones por instrumento"
 HOJA_RESUMEN = "Rendimiento Actual"
@@ -79,9 +84,10 @@ def transacciones(
     """Operaciones del mercado secundario, una fila por operación.
 
     `archivo` es la ruta, los bytes o un `BytesIO` del Excel de Crédito Público; si
-    se pasa, no se usa la caché. Si no, el Excel se descarga de `url` o de la
-    variable de entorno `RDFIN_URL_CP` y se guarda en la caché, que se renueva con
-    `refrescar=True` o cuando la copia tiene más de `max_edad_horas`.
+    se pasa, no se usa la caché. Si no, el Excel se descarga de `url`, de la
+    variable de entorno `RDFIN_URL_CP` o de `URL_POR_DEFECTO`, en ese orden, y se
+    guarda en la caché, que se renueva con `refrescar=True` o cuando la copia tiene
+    más de `max_edad_horas`.
 
     Con `crudo=True` devuelve la hoja tal cual: las 13 columnas con sus nombres y
     valores originales, todas las filas y sin marcas, con el número de fila de
@@ -106,14 +112,7 @@ def transacciones(
 
 
 def _excel_en_cache(url: str | None, refrescar: bool, max_edad_horas: float):
-    url = url or os.environ.get("RDFIN_URL_CP")
-    if not url:
-        raise FuenteNoConfigurada(
-            "No se indicó de dónde leer el Excel de Crédito Público. Hay tres formas: "
-            "pasar en `archivo` la ruta, los bytes o un BytesIO del Excel; pasar en "
-            "`url` el enlace del Excel; o definir la variable de entorno RDFIN_URL_CP "
-            "con ese enlace."
-        )
+    url = url or os.environ.get("RDFIN_URL_CP") or URL_POR_DEFECTO
     return _cache.excel(
         _cache.CREDITOPUBLICO, url, refrescar=refrescar, max_edad_horas=max_edad_horas
     )

@@ -5,6 +5,7 @@ Los datos son inventados: cada fila existe para cubrir un caso de las pruebas.
 
 from datetime import datetime
 
+import httpx
 import openpyxl
 import pytest
 
@@ -126,11 +127,20 @@ def escribir_excel(ruta):
     return ruta
 
 
+def _sin_red(*args, **kwargs):
+    raise RuntimeError("Las pruebas normales no usan la red.")
+
+
 @pytest.fixture(autouse=True)
-def _aislar(tmp_path, monkeypatch):
-    # Ninguna prueba usa la caché del usuario ni la URL real de la fuente.
+def _aislar(request, tmp_path, monkeypatch):
+    # Ninguna prueba usa la caché del usuario. Salvo las de la marca `red`, tampoco
+    # la URL real ni la red: como hay una URL por defecto, un descuido descargaría
+    # de la fuente. Las pruebas de descarga usan httpx.MockTransport, que no pasa por
+    # HTTPTransport.
     monkeypatch.setenv("RDFIN_CACHE", str(tmp_path / "cache"))
-    monkeypatch.delenv("RDFIN_URL_CP", raising=False)
+    if request.node.get_closest_marker("red") is None:
+        monkeypatch.delenv("RDFIN_URL_CP", raising=False)
+        monkeypatch.setattr(httpx.HTTPTransport, "handle_request", _sin_red)
 
 
 @pytest.fixture

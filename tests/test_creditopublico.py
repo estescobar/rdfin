@@ -14,7 +14,7 @@ from conftest import ENCABEZADO, FILAS, RESUMEN
 import rdfin
 from rdfin import _cache, _http
 from rdfin import creditopublico as cp
-from rdfin.errores import CambioDeFormato, ErrorDeDescarga, FuenteNoConfigurada
+from rdfin.errores import CambioDeFormato, ErrorDeDescarga
 
 COLUMNAS_LIMPIAS = [
     "instrumento", "isin", "fecha", "vencimiento", "cupon_pct", "titulos",
@@ -134,14 +134,6 @@ def _modificar(excel, tmp_path, cambio, hoja="Transacciones por instrumento"):
     ruta = tmp_path / "modificado.xlsx"
     libro.save(ruta)
     return ruta
-
-
-def test_sin_fuente():
-    # El mensaje nombra las tres formas de resolverlo.
-    with pytest.raises(FuenteNoConfigurada, match="`archivo`.*`url`.*RDFIN_URL_CP"):
-        cp.transacciones()
-    with pytest.raises(FuenteNoConfigurada):
-        cp.resumen_oficial()
 
 
 def test_columna_faltante(excel, tmp_path):
@@ -422,6 +414,12 @@ def test_cache_url_de_la_variable(descargas, monkeypatch):
     monkeypatch.setenv("RDFIN_URL_CP", URL)
     cp.transacciones()
     assert descargas == [URL]
+
+
+def test_url_por_defecto(descargas):
+    cp.transacciones()
+    cp.resumen_oficial()
+    assert descargas == [cp.URL_POR_DEFECTO]
 
 
 def test_cache_cambio_de_version(descargas, monkeypatch):
